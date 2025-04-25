@@ -1,0 +1,2 @@
+[console_scripts]
+play_chess = chess.start_with_input:start_with_position_or_history

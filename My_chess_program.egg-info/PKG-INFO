@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: My_chess_program
+Version: 0.1.0
+Summary: A chess-playing program with an AI.
+Author-email: Ged Corob Cook <gcorobcook@gmail.com>
+License: MIT
+Requires-Python: >=3.6
+Description-Content-Type: text/markdown
+Requires-Dist: pygame

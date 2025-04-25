@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "My_chess_program"
+version = "0.1.0"
+description = "A chess-playing program with an AI."
+readme = "README.md"
+requires-python = ">=3.6"
+license = { text = "MIT" }
+authors = [
+  { name = "Ged Corob Cook", email = "gcorobcook@gmail.com" }
+]
+dependencies = [
+  "pygame"
+]
+
+[project.scripts]
+play_chess = "chess.start_with_input:start_with_position_or_history"

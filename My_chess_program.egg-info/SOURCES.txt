@@ -1,0 +1,16 @@
+pyproject.toml
+My_chess_program.egg-info/PKG-INFO
+My_chess_program.egg-info/SOURCES.txt
+My_chess_program.egg-info/dependency_links.txt
+My_chess_program.egg-info/entry_points.txt
+My_chess_program.egg-info/requires.txt
+My_chess_program.egg-info/top_level.txt
+chess/__init__.py
+chess/chess.py
+chess/chessAI.py
+chess/chessGUI.py
+chess/start_with_input.py
+chess/old_versions/chess.py
+chess/old_versions/chess3.py
+chess/old_versions/chessAI.py
+chess/old_versions/chessGUI.py

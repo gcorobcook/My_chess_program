@@ -1,0 +1,23 @@
+body {
+	background-color:powderblue;
+	font-family:sans-serif;
+}
+
+#board {
+	width:40%;
+	background-color:white;
+	border: 0.2em solid grey;
+	float:left;
+	margin: 0 13%;
+}
+
+#moves {
+	width:20%;
+	height:24em;
+	border: 0.2em solid grey;
+	background-color:white;
+	overflow-y:scroll;
+	vertical-align:center;
+	float:left;
+	margin-left:5%;
+}
