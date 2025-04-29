@@ -1,5 +1,5 @@
 # at some point, take constants like alpha, MCTS tree size, c_puct, temperature,...
-# outside together to if name==main, or somewhere.
+# outside together to if name==main, or somewhere. Number of layers in nn,...
 # my understanding, based on e.g.
 # https://stats.stackexchange.com/questions/322831/purpose-of-dirichlet-noise-in-the-alphazero-paper,
 # is that alpha should be independent of MCTS tree size.
@@ -10,7 +10,6 @@
 from . import chess
 
 import numpy as np
-import math
 import random
 import copy
 
@@ -58,6 +57,35 @@ class MCTS_tree(dict):
     
     def add(self,name,children=[],N=[],W=[],Q=[],P=[],visits=1):
         self[name] = tree_node(children,N,W,Q,P,visits) # can use a hash of the name
+    
+    def evaluate_queue(self,leaf_queue,model):
+        print("Evaluating...")
+        positions = np.stack([i[0].position for i in leaf_queue])
+        weights,v_scores = model(positions,training=False)
+        print("Weights found!")
+        
+        # update data
+        for i in range(8):
+            current,current_path = leaf_queue[i]
+            weight = weights[i]
+            
+            # add node probabilities
+            name = current.FEN_string()
+            probs = [weight[FEN.encode_move(move)] for move in self[name].children]
+            probs = [prob/sum(probs) for prob in probs]
+            self[current.FEN_string()].P = probs
+            
+            # update path with v_scores
+            for name,move in current_path:
+                self[name].visits += 1
+                if move == None:
+                    break
+                self[name].N[move] += 1
+                self[name].W[move] += v_scores[i]
+                self[name].Q[move] = self[name].W[move]/self[name].N[move]
+        # Note: after reaching a checkmate/stalemate, we still get a v_score
+        # and update scores for the path to it.
+        print("Queue evaluated!")
 
     def build(self,FEN,model,training=True):
         # Add Dirichlet noise inside MCTS.
@@ -74,13 +102,12 @@ class MCTS_tree(dict):
         
         root = FEN.FEN_string()
         
-        if root not in self:
+        if root not in self: # should only happen at the beginning of a game
             children = list(FEN.moves())
             move_count = len(children)
             
             weights,v_score = model(FEN.position.reshape(1,8,8,58), training=False)
             weights = weights.numpy().reshape(8,8,73)
-            # weights = np.ones((8,8,73)) # until the model is working, for testing
             
             # calculate probs with model, + Dirichlet noise when training
             probs = [weights[FEN.encode_move(move)] for move in children]
@@ -98,7 +125,8 @@ class MCTS_tree(dict):
                 probs = [0.75*probs[i] + 0.25*noise[i] for i in range(move_count)]
             self[root].P = probs
         
-        # add nodes
+        # add nodes in mini-batches of 8
+        leaf_queue = []
         while self[root].visits < to_consider:
             # select a node to add a new edge to
             current = copy.deepcopy(FEN)
@@ -114,46 +142,34 @@ class MCTS_tree(dict):
                 children = self[name].children
                 for i in range(len(children)):
                     score = (self[name].Q[i] + c_puct*self[name].P[i]*
-                    math.sqrt(self[name].visits)/(1+self[name].N[i]))
+                    self[name].visits**0.5/(1+self[name].N[i]))
                     if score > best_score:
                         best_score = score
                         best_move = i
                 current_path.append((name,best_move))
-                # if best_move == None: #test
-                    # print("Issue found!")
-                    # print(name)
-                    # print(children)
-                    # print(self[name].P)
                 current.next_move(children[best_move])
                 name = current.FEN_string()
             
-            # when we get to a leaf, calculate weights
-            weights,v_score = model(current.position.reshape(1,8,8,58),
-            training=False)
-            weights = weights.numpy().reshape(8,8,73)
-            # weights = np.ones((8,8,73)) # to allow testing until the model is working
-            # v_score = 0 # same
-            # Note: after reaching a checkmate/stalemate, we still get a v_score
-            # and update scores for the path to it.
-            
+            # add leaf to queue and add node to MCTS with the data so far
             if name not in self: # add a node
                 children = list(current.moves())
                 move_count = len(children)
-                # encode the moves into the (8,8,73) array to get weights
-                probs = [weights[FEN.encode_move(move)] for move in children]
-                probs = [prob/sum(probs) for prob in probs]
-                self.add(name,children,[0]*move_count,[0]*move_count,[0]*move_count,
-                probs,1)
+                self.add(name,children,[0]*move_count,[0]*move_count,[0]*move_count)
+            leaf_queue.append((current,current_path))
             
-            # update data
-            for step in current_path:
-                name,move = step
-                self[name].visits += 1
-                if move == None:
-                    break
-                self[name].N[move] += 1
-                self[name].W[move] += v_score
-                self[name].Q[move] = self[name].W[move]/self[name].N[move]
+            # add virtual loss so this leaf isn't chosen again in this mini-batch
+            # (unless few choices are available)
+            # Q -= 1 at the last node
+            name,move = current_path[-1]
+            self[name].Q[move] -= 1
+            
+            # evaluation and update MCTS, 8 nodes at a time
+            if len(leaf_queue) == 8:
+                print("Full queue!")
+                self.evaluate_queue(leaf_queue,model)
+                leaf_queue = []
+                print("Queue flushed!")
+            
     
     def subtree(self,FEN):
         # build the subtree of self starting at FEN and return
@@ -183,7 +199,7 @@ def self_play(model):
     temperature = 1 # may need tuning
     training_buffer = []
     
-    new_game=chess4.game()
+    new_game=chess.game()
     tree = MCTS_tree()
     for j in range(600): # i.e. that many halfmoves allowed
         if new_game.FEN.is_checkmate():
@@ -367,7 +383,7 @@ def play_2models(model1,model2):
     # So that, during training, I can check if the new model beats the old one
     # model1 plays white, model2 black.
     temperature = 1 # may need tuning
-    new_game=chess4.game()
+    new_game=chess.game()
     # Each model has its own tree search
     tree1 = MCTS_tree()
     tree2 = MCTS_tree()
@@ -435,7 +451,7 @@ def play_2models_no_trees(model1,model2):
     # Moves are selected based only on the raw probabilities output by the models.
     # model1 plays white, model2 black.
     temperature = 1
-    new_game=chess4.game()
+    new_game=chess.game()
     for j in range(600): # i.e. that many halfmoves allowed
         if new_game.FEN.is_checkmate():
             if new_game.FEN.colour(): # black wins
@@ -478,11 +494,18 @@ def compare_models_no_trees(model1,model2):
         results[result] = results.get(result,0)+1
     return results
 
+def get_or_create_model(name):
+    if os.path.exists(name+".keras"):
+        model = load_model(name+".keras")
+    else:
+        model = build_model(name)
+        model.save(name+".keras",include_optimizer=True)
+    return model
+
 def main_training_loop():
     # Go through self-play, training, comparing the new model with the best one,
     # and saving training buffer and latest models
-    # I could also do learning rate scheduling, tuning hyperparameters, etc.,
-    # but I expect my training won't reach that stage
+    # I could also do learning rate scheduling, tuning hyperparameters, etc...
     
     num_games = 64
     epochs = 50
@@ -490,46 +513,39 @@ def main_training_loop():
     games_each = 8
     
     while True:
-        if os.path.exists("best_model"):
-            best_model = load_model("best_model.keras")
-        else:
-            best_model = build_model()
-            best_model.save("best_model.keras")
+        get_or_create_model("best_model")
         add_to_buffer(best_model,num_games)
         
-        if os.path.exists("current_model"):
-            current_model = load_model("current_model.keras")
-        else:
-            current_model = build_model()
+        get_or_create_model("current_model")
         train_model(current_model,epochs,batch_size)
-        current_model.save("current_model.keras")
+        current_model.save("current_model.keras",include_optimizer=True)
         
         results = compare_models(current_model,best_model,games_each)
         print("Results: ",results)
         if results['model1'] > results['model2']:
-            current_model.save("best_model.keras")
+            current_model.save("best_model.keras",include_optimizer=True)
 
 if __name__ == "__main__":
-    # main_training_loop()
+    main_training_loop()
     
-    epochs= 2
-    batch_size= 32
-    games_each=1
+    # epochs= 2
+    # batch_size= 32
+    # games_each=1
     
-    if os.path.exists("best_model.keras"):
-        best_model = load_model("best_model.keras")
-    else:
-        best_model = build_model('best_model')
-        best_model.save("best_model.keras")
+    # if os.path.exists("best_model.keras"):
+        # best_model = load_model("best_model.keras")
+    # else:
+        # best_model = build_model('best_model')
+        # best_model.save("best_model.keras")
     
-    if os.path.exists("current_model.keras"):
-        current_model = load_model("current_model.keras")
-    else:
-        current_model = build_model('current_model')
-    train_model(current_model,epochs,batch_size)
-    current_model.save("current_model.keras")
+    # if os.path.exists("current_model.keras"):
+        # current_model = load_model("current_model.keras")
+    # else:
+        # current_model = build_model('current_model')
+    # train_model(current_model,epochs,batch_size)
+    # current_model.save("current_model.keras")
 
-    results = compare_models(current_model,best_model,games_each)
-    print("Results: ",results)
-    if results['current_model'] > results['best_model']:
-        current_model.save("best_model.keras")
+    # results = compare_models(current_model,best_model,games_each)
+    # print("Results: ",results)
+    # if results['current_model'] > results['best_model']:
+        # current_model.save("best_model.keras")

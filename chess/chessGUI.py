@@ -796,5 +796,6 @@ class GUIgame(chess.game):
             self.ending(next)
         pygame.quit()
 
-# GUIgame().play()
-# pygame.quit()
+if __name__ == '__main__':
+    GUIgame().play()
+    pygame.quit()

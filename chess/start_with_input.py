@@ -89,3 +89,6 @@ def start_with_position_or_history():
             start_game(parameters[1],parameters[0][1:-1])
         else:
             start_game(parameters[0],parameters[1][1:-1])
+
+if __name__ == '__main__':
+    start_with_position_or_history()

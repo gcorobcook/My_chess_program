@@ -674,8 +674,7 @@ class game:
                 start_pos[pos] = 1
             start_pos[1,:,5] += 1
             start_pos[6,:,11] += 1
-            start_pos[:,:,52:] += 1 # colour, castling*4, halfmove
-            start_pos[:,:,57] /= 100
+            start_pos[:,:,52:57] += 1 # colour, castling*4, halfmove
             FEN = FEN_position(start_pos)
         
         self.FEN = FEN
@@ -1014,3 +1013,6 @@ class game:
         print("History: ")
         for i in self.history:
             print(i)
+
+if __name__ == '__main__':
+    game().play()
