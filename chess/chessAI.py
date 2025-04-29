@@ -203,7 +203,8 @@ def self_play(model):
                         training_buffer[i][2] = 1
             else: # white wins
                 new_game.history.append('1-0')
-                print(new_game.history[-2:]) # print white's last move too
+                print(new_game.history[-2]) # print white's last move too
+                print(new_game.history[-1])
                 for i in range(len(training_buffer)):
                     if i%2 == 0: # white moves
                         training_buffer[i][2] = 1
@@ -212,10 +213,9 @@ def self_play(model):
             break
         elif new_game.is_draw():
             new_game.history.append(('1/2-1/2 ',new_game.is_draw()))
-            if new_game.FEN.colour():
-                print(new_game.history[-1])
-            else: # print white's last move too
-                print(new_game.history[-2:])
+            if not new_game.FEN.colour():
+                print(new_game.history[-2]) # print white's last move too
+            print(new_game.history[-1])
             break
         else:
             # build a MCTS tree
@@ -491,6 +491,7 @@ def compare_models_no_trees(model1,model2):
 def get_or_create_model(name):
     if os.path.exists(name+".keras"):
         model = load_model(name+".keras")
+        model.name = name
     else:
         model = build_model(name)
         model.save(name+".keras",include_optimizer=True)
@@ -516,7 +517,7 @@ def main_training_loop():
         
         results = compare_models(current_model,best_model,games_each)
         print("Results: ",results)
-        if results['model1'] > results['model2']:
+        if results["current_model"] > results["best_model"]:
             current_model.save("best_model.keras",include_optimizer=True)
 
 if __name__ == "__main__":

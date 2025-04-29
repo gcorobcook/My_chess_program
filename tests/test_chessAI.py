@@ -43,7 +43,7 @@ class testAImethods(unittest.TestCase):
         
         results = compare_models(current_model,best_model,games_each)
         print("Results: ",results)
-        if results['model1'] > results['model2']:
+        if results["current_model"] > results["best_model"]:
             current_model.save("best_model.keras",include_optimizer=True)
 
 if __name__ == '__main__':
