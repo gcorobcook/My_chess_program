@@ -68,18 +68,18 @@ class MCTS_tree(dict):
             current,current_path = leaf_queue[i]
             weight = weights[i]
             
-            # add node probabilities
+            # add node with probabilities
             name = current.FEN_string()
-            probs = [weight[FEN.encode_move(move)] for move in self[name].children]
-            probs = [prob/sum(probs) for prob in probs]
-            self[current.FEN_string()].P = probs
+            if name not in self:
+                children = list(current.moves())
+                move_count = len(children)
+                probs = [weight[FEN.encode_move(move)] for move in children]
+                probs = [prob/sum(probs) for prob in probs]
+                self.add(name,children,[0]*move_count,[0]*move_count,[0]*move_count,
+                probs,1)
             
             # update path with v_scores
             for name,move in current_path:
-                self[name].visits += 1
-                if move == None:
-                    break
-                self[name].N[move] += 1
                 self[name].W[move] += v_scores[i]
                 self[name].Q[move] = self[name].W[move]/self[name].N[move]
         # Note: after reaching a checkmate/stalemate, we still get a v_score
@@ -88,7 +88,7 @@ class MCTS_tree(dict):
     def build(self,FEN,model,training=True):
         # Add Dirichlet noise inside MCTS.
         # Data is (N,W,Q,P) for each child,
-        # for number of visit, total value, mean value, and prior.
+        # for number of visits, total value, mean value, and prior.
         # Each time we add a node after calculating weights.
         # The tree stores FEN_positions, so it includes fullmove
         # and en passant (convenience for calculating .moves()), but only
@@ -133,7 +133,6 @@ class MCTS_tree(dict):
             name = current.FEN_string()
             while name in self:
                 if len(self[name].children)==0: # checkmate/stalemate - deal with below
-                    current_path.append((name,None))
                     break
                 best_score = float('-inf')
                 best_move = None
@@ -148,24 +147,19 @@ class MCTS_tree(dict):
                 current.next_move(children[best_move])
                 name = current.FEN_string()
             
-            # add leaf to queue and add node to MCTS with the data so far
-            if name not in self: # add a node
-                children = list(current.moves())
-                move_count = len(children)
-                self.add(name,children,[0]*move_count,[0]*move_count,[0]*move_count)
+            # add leaf to queue
             leaf_queue.append((current,current_path))
             
-            # add virtual loss so this leaf isn't chosen again in this mini-batch
+            # add to N on path as we go so this leaf isn't chosen again in this mini-batch
             # (unless few choices are available)
-            # Q -= 1 at the last node
-            name,move = current_path[-1]
-            self[name].Q[move] -= 1
+            for name,move in current_path:
+                self[name].visits += 1
+                self[name].N[move] += 1
             
             # evaluation and update MCTS, 8 nodes at a time
             if len(leaf_queue) == 8:
                 self.evaluate_queue(leaf_queue,FEN,model)
                 leaf_queue = []
-            
     
     def subtree(self,FEN):
         # build the subtree of self starting at FEN and return
@@ -201,6 +195,7 @@ def self_play(model):
         if new_game.FEN.is_checkmate():
             if new_game.FEN.colour(): # black wins
                 new_game.history.append('0-1')
+                print(new_game.history[-1])
                 for i in range(len(training_buffer)):
                     if i%2 == 0: # white moves
                         training_buffer[i][2] = -1
@@ -208,16 +203,19 @@ def self_play(model):
                         training_buffer[i][2] = 1
             else: # white wins
                 new_game.history.append('1-0')
+                print(new_game.history[-2:]) # print white's last move too
                 for i in range(len(training_buffer)):
                     if i%2 == 0: # white moves
                         training_buffer[i][2] = 1
                     else: # black moves
                         training_buffer[i][2] = -1
-            print(new_game.history[-1])
             break
         elif new_game.is_draw():
             new_game.history.append(('1/2-1/2 ',new_game.is_draw()))
-            print(new_game.history[-1])
+            if new_game.FEN.colour():
+                print(new_game.history[-1])
+            else: # print white's last move too
+                print(new_game.history[-2:])
             break
         else:
             # build a MCTS tree
@@ -236,7 +234,7 @@ def self_play(model):
             move = random.choices(root.children,probs)[0]
             # .next_move() and prune tree
             new_game.next_move(move)
-            if new_game.FEN.colour(): #test
+            if new_game.FEN.colour(): # for my own amusement, while the games are slow
                 print(new_game.history[-1])
             tree = tree.subtree(new_game.FEN)
     return training_buffer
@@ -261,7 +259,7 @@ def add_to_buffer(model,num_games=64):
             training_buffer = future.result()
             print("New positions to add: ",len(training_buffer))
             big_training_buffer += training_buffer
-            print("Games in buffer: ",len(big_training_buffer))
+            print("Positions in buffer: ",len(big_training_buffer))
             # Save the aggregated data to a pickle file.
             with open("training_data.pkl", "wb") as f:
                 pickle.dump(big_training_buffer, f)
@@ -523,25 +521,3 @@ def main_training_loop():
 
 if __name__ == "__main__":
     main_training_loop()
-    
-    # epochs= 2
-    # batch_size= 32
-    # games_each=1
-    
-    # if os.path.exists("best_model.keras"):
-        # best_model = load_model("best_model.keras")
-    # else:
-        # best_model = build_model('best_model')
-        # best_model.save("best_model.keras")
-    
-    # if os.path.exists("current_model.keras"):
-        # current_model = load_model("current_model.keras")
-    # else:
-        # current_model = build_model('current_model')
-    # train_model(current_model,epochs,batch_size)
-    # current_model.save("current_model.keras")
-
-    # results = compare_models(current_model,best_model,games_each)
-    # print("Results: ",results)
-    # if results['current_model'] > results['best_model']:
-        # current_model.save("best_model.keras")
