@@ -1,6 +1,8 @@
+from chess.chess import *
 from chess.chessAI import *
 from chess.start_with_input import *
 import unittest
+import copy
 
 class testAImethods(unittest.TestCase):
     
@@ -15,11 +17,17 @@ class testAImethods(unittest.TestCase):
     def test_evaluate_queue(self):
         leaf_queue = []
         string = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+        FEN = interpret_FEN_string(string)
         for i in range(8):
-            leaf_queue.append(interpret_FEN_string(string))
+            leaf_queue.append((copy.deepcopy(FEN),[]))
         tree = MCTS_tree()
+        current = FEN
+        children = list(current.moves())
+        move_count = len(children)
+        tree.add(string,children,[0]*move_count,[0]*move_count,[0]*move_count)
         model = get_or_create_model("best_model")
-        tree.evaluate_queue(leaf_queue,model)
+        tree.evaluate_queue(leaf_queue,FEN,model)
+        self.assertAlmostEqual(sum(tree[string].P),1)
     
     def test_MCTS_build(self):
         string = 'rnbqkbnr/pppppppp/8/4P3/8/8/PPPP1PPP/RNBQKBNR w KQkq - 0 1'

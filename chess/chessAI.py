@@ -58,11 +58,10 @@ class MCTS_tree(dict):
     def add(self,name,children=[],N=[],W=[],Q=[],P=[],visits=1):
         self[name] = tree_node(children,N,W,Q,P,visits) # can use a hash of the name
     
-    def evaluate_queue(self,leaf_queue,model):
-        print("Evaluating...")
+    def evaluate_queue(self,leaf_queue,FEN,model):
         positions = np.stack([i[0].position for i in leaf_queue])
         weights,v_scores = model(positions,training=False)
-        print("Weights found!")
+        weights = weights.numpy().reshape(-1,8,8,73)
         
         # update data
         for i in range(8):
@@ -85,7 +84,6 @@ class MCTS_tree(dict):
                 self[name].Q[move] = self[name].W[move]/self[name].N[move]
         # Note: after reaching a checkmate/stalemate, we still get a v_score
         # and update scores for the path to it.
-        print("Queue evaluated!")
 
     def build(self,FEN,model,training=True):
         # Add Dirichlet noise inside MCTS.
@@ -165,10 +163,8 @@ class MCTS_tree(dict):
             
             # evaluation and update MCTS, 8 nodes at a time
             if len(leaf_queue) == 8:
-                print("Full queue!")
-                self.evaluate_queue(leaf_queue,model)
+                self.evaluate_queue(leaf_queue,FEN,model)
                 leaf_queue = []
-                print("Queue flushed!")
             
     
     def subtree(self,FEN):
@@ -513,10 +509,10 @@ def main_training_loop():
     games_each = 8
     
     while True:
-        get_or_create_model("best_model")
+        best_model = get_or_create_model("best_model")
         add_to_buffer(best_model,num_games)
         
-        get_or_create_model("current_model")
+        current_model = get_or_create_model("current_model")
         train_model(current_model,epochs,batch_size)
         current_model.save("current_model.keras",include_optimizer=True)
         
