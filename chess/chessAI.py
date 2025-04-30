@@ -454,8 +454,11 @@ def compare_models_init_worker(model1_name,model2_name):
     MODEL1 = get_or_create_model(model1_name,opts=True)
     MODEL2 = get_or_create_model(model2_name,opts=False)
 
-def play_2models_wrapper():
-    return play_2models(MODEL1,MODEL2),play_2models(MODEL2,MODEL1)
+def play_2models_wrapper1():
+    return play_2models(MODEL1,MODEL2)
+
+def play_2models_wrapper2():
+    return play_2models(MODEL2,MODEL1)
 
 def compare_models(model1_name,model2_name,games_each=10):
     results = {model1_name:0,model2_name:0}
@@ -465,18 +468,20 @@ def compare_models(model1_name,model2_name,games_each=10):
     initializer=compare_models_init_worker,
     initargs=(model1_name,model2_name)) as executor:
         pending = []
-        for _ in range(games_each):
+        flag = True # to alternate between MODEL1 playing white and black
+        for _ in range(2*games_each):
             if len(pending) >= num_processes:
                 done, pending = wait(pending, return_when=FIRST_COMPLETED)
                 for future in done:
-                    result1,result2 = future.result()
-                    results[result1] = results.get(result1,0)+1
-                    results[result2] = results.get(result2,0)+1
-            pending.append(executor.submit(play_2models_wrapper))
+                    result = future.result()
+                    results[result] = results.get(result,0)+1
+            if flag:
+                pending.append(executor.submit(play_2models_wrapper1))
+            else:
+                pending.append(executor.submit(play_2models_wrapper2))
         for future in as_completed(pending):
-            result1,result2 = future.result()
-            results[result1] = results.get(result1,0)+1
-            results[result2] = results.get(result2,0)+1
+            result = future.result()
+            results[result] = results.get(result,0)+1
     return results
 
 def play_2models_no_trees(model1,model2):
