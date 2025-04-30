@@ -30,21 +30,18 @@ class testAImethods(unittest.TestCase):
     
     def test_training_loop(self):
         num_games = 2
-        epochs = 5
+        epochs = 10
         batch_size = 32
         games_each = 1
         
-        best_model = get_or_create_model("best_model")
-        add_to_buffer(best_model,num_games)
+        add_to_buffer("best_model",num_games)
         
-        current_model = get_or_create_model("current_model")
-        train_model(current_model,epochs,batch_size)
-        current_model.save("current_model.keras",include_optimizer=True)
+        train_model("current_model",epochs,batch_size)
         
-        results = compare_models(current_model,best_model,games_each)
+        results = compare_models("current_model","best_model",games_each)
         print("Results: ",results)
         if results["current_model"] > results["best_model"]:
-            current_model.save("best_model.keras",include_optimizer=True)
+            current_model.save("best_model.keras",include_optimizer=False)
 
 if __name__ == '__main__':
     unittest.main()

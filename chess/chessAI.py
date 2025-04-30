@@ -1,5 +1,6 @@
 # at some point, take constants like alpha, MCTS tree size, c_puct, temperature,...
-# outside together to if name==main, or somewhere. Number of layers in nn,...
+# outside together to if name==main, or somewhere.
+# Number of layers in nn, learning rate, batch size, epochs, number of games,...
 # my understanding, based on e.g.
 # https://stats.stackexchange.com/questions/322831/purpose-of-dirichlet-noise-in-the-alphazero-paper,
 # is that alpha should be independent of MCTS tree size.
@@ -241,21 +242,41 @@ def self_play(model):
 
 # 2.5. Add games to buffer
 
-def add_to_buffer(model,num_games=64):
+def init_worker(model_name):
+    global MODEL
+    MODEL = get_or_create_model(model_name,opts=False)
+
+def self_play_wrapper():
+    return self_play(MODEL)
+
+def add_to_buffer(model_name,num_games=64):
     if os.path.exists("training_data.pkl"):
         with open("training_data.pkl", "rb") as f:
             big_training_buffer = pickle.load(f)
     else:
         big_training_buffer = []
     
-    num_processes = 2
+    num_processes = 4
     
-    with ProcessPoolExecutor(max_workers=num_processes) as executor:
-        # Submit a task for each process to run self_play num_games//num_processes times.
-        futures = [executor.submit(self_play,model) for _ in range(num_games)]
+    with ProcessPoolExecutor(max_workers=num_processes,
+        initializer=init_worker,
+        initargs=(model_name,)) as executor:
         
-        # As each process completes, aggregate the results.
-        for future in as_completed(futures):
+        # Submit a task for each process to run self_play num_games//num_processes times.
+        pending = []
+        for _ in range(num_games):
+            if len(pending) >= num_processes:
+                done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                for future in done:
+                    training_buffer = future.result()
+                    print("New positions to add: ",len(training_buffer))
+                    big_training_buffer += training_buffer
+                    print("Positions in buffer: ",len(big_training_buffer))
+                    # Save the aggregated data to a pickle file.
+                    with open("training_data.pkl", "wb") as f:
+                        pickle.dump(big_training_buffer, f)
+            pending.append(executor.submit(self_play_wrapper))
+        for future in as_completed(pending):
             training_buffer = future.result()
             print("New positions to add: ",len(training_buffer))
             big_training_buffer += training_buffer
@@ -335,14 +356,16 @@ def v_head(x):
     # v = y_pred[1]
     # return categorical_crossentropy(pi, p) + MSE(z, v)
 
-def build_model(name):
+def build_model(name,opts=True):
     input_layer = Input(shape=(8,8,58))
     x = base_layers(input_layer)
     p = moves_head(x)
     v = v_head(x)
     
     model = Model(inputs=input_layer, outputs=[p,v], name=name)
-    model.compile(optimizer=AdamW(learning_rate=0.002), loss=[categorical_crossentropy,MSE])
+    if opts:
+        model.compile(optimizer=AdamW(learning_rate=0.002),
+        loss=[categorical_crossentropy,MSE])
     return model
 
 def get_training_data(batch_size):
@@ -362,12 +385,14 @@ def get_training_data(batch_size):
 # already have, load the model and train that.
 # I will compare models every 100 epochs
 
-def train_model(model,epochs=100,batch_size=256):
+def train_model(model_name,epochs=100,batch_size=256):
+    model = get_or_create_model(model_name,opts=True)
     for epoch in range(epochs):
         X_train, pi_train, z_train = get_training_data(batch_size)
         model.fit(X_train, [pi_train,z_train])
         if epoch+1%10 == 0:
             print("Epoch ",epoch+1," done!")
+    model.save(model_name+".keras",include_optimizer=True)
 
 # 4. Compare models
 
@@ -424,21 +449,34 @@ def play_2models(model1,model2):
                 print(new_game.history[-1])
     return 'ran out of moves'
 
-def compare_models(model1,model2,games_each=10):
-    results = {model1.name:0,model2.name:0}
+def compare_models_init_worker(model1_name,model2_name):
+    global MODEL1,MODEL2
+    MODEL1 = get_or_create_model(model1_name,opts=True)
+    MODEL2 = get_or_create_model(model2_name,opts=False)
+
+def play_2models_wrapper():
+    return play_2models(MODEL1,MODEL2),play_2models(MODEL2,MODEL1)
+
+def compare_models(model1_name,model2_name,games_each=10):
+    results = {model1_name:0,model2_name:0}
     
-    num_processes = 2
-    with ProcessPoolExecutor(max_workers=num_processes) as executor:
-        # Submit a task for each process to run self_play num_games//num_processes times.
-        futures = ([executor.submit(play_2models,
-        model1,model2) for _ in range(games_each)] +
-        [executor.submit(play_2models,
-        model2,model1) for _ in range(games_each)])
-        
-        # As each process completes, aggregate the results.
-        for future in as_completed(futures):
-            result = future.result()
-            results[result] = results.get(result,0)+1
+    num_processes = 4
+    with ProcessPoolExecutor(max_workers=num_processes,
+    initializer=compare_models_init_worker,
+    initargs=(model1_name,model2_name)) as executor:
+        pending = []
+        for _ in range(games_each):
+            if len(pending) >= num_processes:
+                done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                for future in done:
+                    result1,result2 = future.result()
+                    results[result1] = results.get(result1,0)+1
+                    results[result2] = results.get(result2,0)+1
+            pending.append(executor.submit(play_2models_wrapper))
+        for future in as_completed(pending):
+            result1,result2 = future.result()
+            results[result1] = results.get(result1,0)+1
+            results[result2] = results.get(result2,0)+1
     return results
 
 def play_2models_no_trees(model1,model2):
@@ -488,13 +526,13 @@ def compare_models_no_trees(model1,model2):
         results[result] = results.get(result,0)+1
     return results
 
-def get_or_create_model(name):
+def get_or_create_model(name,opts=True):
     if os.path.exists(name+".keras"):
-        model = load_model(name+".keras")
+        model = load_model(name+".keras",compile=opts)
         model.name = name
     else:
-        model = build_model(name)
-        model.save(name+".keras",include_optimizer=True)
+        model = build_model(name,opts)
+        model.save(name+".keras",include_optimizer=False)
     return model
 
 def main_training_loop():
@@ -502,23 +540,20 @@ def main_training_loop():
     # and saving training buffer and latest models
     # I could also do learning rate scheduling, tuning hyperparameters, etc...
     
-    num_games = 64
+    num_games = 32
     epochs = 50
     batch_size = 128
     games_each = 8
     
     while True:
-        best_model = get_or_create_model("best_model")
-        add_to_buffer(best_model,num_games)
+        add_to_buffer("best_model",num_games)
         
-        current_model = get_or_create_model("current_model")
-        train_model(current_model,epochs,batch_size)
-        current_model.save("current_model.keras",include_optimizer=True)
+        train_model("current_model",epochs,batch_size)
         
-        results = compare_models(current_model,best_model,games_each)
+        results = compare_models("current_model","best_model",games_each)
         print("Results: ",results)
         if results["current_model"] > results["best_model"]:
-            current_model.save("best_model.keras",include_optimizer=True)
+            current_model.save("best_model.keras",include_optimizer=False)
 
 if __name__ == "__main__":
     main_training_loop()
